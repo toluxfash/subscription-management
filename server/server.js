@@ -7,8 +7,8 @@ const SubscriptionRenewalScheduler = require('./services/subscriptionRenewalSche
 // Load environment variables from root .env file
 require('dotenv').config({ path: path.join(__dirname, '..', '.env') });
 
-// Import database connection
-const { initializeDatabase } = require('./config/database');
+// Import database pool
+const { getDatabasePool } = require('./config/database');
 const { apiKeyAuth } = require('./middleware/auth');
 const { errorHandler, notFoundHandler } = require('./middleware/errorHandler');
 const { createSubscriptionRoutes, createProtectedSubscriptionRoutes } = require('./routes/subscriptions');
@@ -31,8 +31,8 @@ app.use(express.json());
 // Async wrapper to start the app after DB initializes
 (async () => {
   try {
-    // Initialize database
-    const db = await initializeDatabase();
+    // Get persistent DB pool
+    const db = getDatabasePool();
 
     // Initialize schedulers
     const exchangeRateScheduler = new ExchangeRateScheduler(db, process.env.TIANAPI_KEY);
@@ -114,3 +114,4 @@ app.use(express.json());
     process.exit(1);
   }
 })();
+
