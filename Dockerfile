@@ -18,7 +18,7 @@ COPY components.json ./
 COPY index.html ./
 COPY env.d.ts ./
 
-# Copy frontend source code (most likely to change)
+# Copy frontend source code
 COPY src/ ./src/
 
 # Build frontend
@@ -59,13 +59,8 @@ COPY --from=backend-builder --chown=nodeuser:nodejs /app/server/node_modules ./s
 # Copy frontend build output
 COPY --from=frontend-builder --chown=nodeuser:nodejs /app/dist ./public
 
-# Create data directory and set proper permissions
-RUN mkdir -p /app/data && \
-    chmod +x ./server/start.sh && \
-    chown -R nodeuser:nodejs ./server/db && \
-    chmod 755 ./server/db && \
-    chown -R nodeuser:nodejs /app/data && \
-    chmod 755 /app/data
+# Ensure start.sh is executable
+RUN chmod +x ./server/start.sh
 
 # Switch to non-root user
 USER nodeuser
