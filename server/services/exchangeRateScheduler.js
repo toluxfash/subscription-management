@@ -59,14 +59,14 @@ class ExchangeRateScheduler {
     async checkAndUpdateIfNeeded() {
         try {
             // 检查最后更新时间
-            const lastUpdate = this.db.prepare(`
-                SELECT MAX(updated_at) as last_update 
+            const [rows] = await this.db.query(`
+                SELECT MAX(updated_at) as last_update
                 FROM exchange_rates
-            `).get();
+            `);
 
             const now = new Date();
-            const lastUpdateDate = lastUpdate?.last_update ? new Date(lastUpdate.last_update) : null;
-            
+            const lastUpdateDate = rows[0]?.last_update ? new Date(rows[0].last_update) : null;
+
             // 如果没有数据或者超过24小时没有更新，则立即更新
             if (!lastUpdateDate || (now - lastUpdateDate) > 24 * 60 * 60 * 1000) {
                 await this.updateExchangeRates();
@@ -90,7 +90,7 @@ class ExchangeRateScheduler {
             }
 
             // 更新数据库
-            const updateCount = this.updateRatesInDatabase(rates);
+            const updateCount = await this.updateRatesInDatabase(rates);
 
             return {
                 success: true,
@@ -113,20 +113,18 @@ class ExchangeRateScheduler {
      * @returns {number} 更新的记录数
      */
     async updateRatesInDatabase(rates) {
-        const upsertRate = this.db.prepare(`
-            INSERT INTO exchange_rates (from_currency, to_currency, rate, updated_at)
-            VALUES (?, ?, ?, CURRENT_TIMESTAMP)
-            ON CONFLICT(from_currency, to_currency) 
-            DO UPDATE SET 
-                rate = excluded.rate,
-                updated_at = CURRENT_TIMESTAMP
-        `);
-
         const transaction = this.db.transaction((rates) => {
             let count = 0;
             for (const rate of rates) {
                 try {
-                    upsertRate.run(rate.from_currency, rate.to_currency, rate.rate);
+                    this.db.query(`
+                        INSERT INTO exchange_rates (from_currency, to_currency, rate, updated_at)
+                        VALUES (?, ?, ?, CURRENT_TIMESTAMP)
+                        ON CONFLICT(from_currency, to_currency)
+                        DO UPDATE SET
+                            rate = VALUES(rate),
+                            updated_at = CURRENT_TIMESTAMP
+                    `, [rate.from_currency, rate.to_currency, rate.rate]);
                     count++;
                 } catch (error) {
                     console.error(`Failed to update rate ${rate.from_currency}->${rate.to_currency}:`, error.message);
