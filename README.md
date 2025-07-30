@@ -71,20 +71,22 @@ A modern subscription management system that helps users easily manage and track
 ### Backend
 - **Runtime**: Node.js
 - **Framework**: Express 5
-- **Database**: SQLite + better-sqlite3
+- **Database**: MySQL (Amazon RDS)
 - **Scheduled Tasks**: node-cron
 - **API Authentication**: API Key
 
 ### Deployment
 - **Containerization**: Docker + Docker Compose
-- **Process Management**: dumb-init
-- **Health Checks**: Built-in health check endpoints
+- **Hosting**: AWS EC2 + Application Load Balancer
+- **Database Hosting**: AWS RDS (MySQL)
 
 ## 🚀 Quick Start
 
 ### Requirements
 - Node.js 20+
-- Docker & Docker Compose (recommended)
+- AWS EC2 Instance (Ubuntu recommended)
+- AWS RDS MySQL Database
+- Docker & Docker Compose (optional for local containerized runs)
 
 ### Docker Deployment (Recommended)
 
@@ -159,22 +161,12 @@ BASE_CURRENCY=CNY
 # Tianapi API key (optional, for exchange rate updates)
 TIANAPI_KEY=your_tianapi_key_here
 
-# Database path (used for Docker deployment)
-DATABASE_PATH=/app/data/database.sqlite
-```
-
-### Database Management
-
-```bash
-# Initialize database
-npm run db:init
-
-# Run migrations
-npm run db:migrate
-
-# Reset database
-npm run db:reset
-```
+# MySQL Database (AWS RDS)
+DB_HOST=<your-rds-endpoint>
+DB_PORT=3306
+DB_USER=<your-username>
+DB_PASSWORD=<your-password>
+DB_NAME=<your-database>
 
 ## 🤝 Contributing
 

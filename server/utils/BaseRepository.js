@@ -1,271 +1,99 @@
+// server/utils/BaseRepository.js
 const logger = require('./logger');
 
-/**
- * 通用数据库操作基类
- * 提供标准的 CRUD 操作和错误处理
- */
 class BaseRepository {
     constructor(db, tableName) {
-        this.db = db;
+        this.db = db; // db is a mysql2/promise pool
         this.tableName = tableName;
     }
 
-    /**
-     * 查询所有记录
-     * @param {Object} options - 查询选项
-     * @param {Object} options.filters - 过滤条件
-     * @param {string} options.orderBy - 排序字段
-     * @param {number} options.limit - 限制数量
-     * @param {number} options.offset - 偏移量
-     * @returns {Array} 查询结果
-     */
-    findAll(options = {}) {
-        const { filters = {}, orderBy, limit, offset } = options;
-        
+    // Find all records
+    async findAll({ filters = {}, orderBy, limit, offset } = {}) {
         let query = `SELECT * FROM ${this.tableName}`;
         const params = [];
-        
-        // 构建 WHERE 条件
-        const whereConditions = [];
-        Object.entries(filters).forEach(([key, value]) => {
-            if (value !== undefined && value !== null) {
-                whereConditions.push(`${key} = ?`);
-                params.push(value);
-            }
-        });
-        
+
+        const whereConditions = Object.entries(filters)
+            .filter(([_, value]) => value !== undefined && value !== null)
+            .map(([key]) => `${key} = ?`);
+
         if (whereConditions.length > 0) {
             query += ` WHERE ${whereConditions.join(' AND ')}`;
+            params.push(...Object.values(filters).filter(v => v !== undefined && v !== null));
         }
-        
-        // 添加排序
-        if (orderBy) {
-            query += ` ORDER BY ${orderBy}`;
-        }
-        
-        // 添加分页
+
+        if (orderBy) query += ` ORDER BY ${orderBy}`;
         if (limit) {
             query += ` LIMIT ?`;
             params.push(limit);
-            
             if (offset) {
                 query += ` OFFSET ?`;
                 params.push(offset);
             }
         }
-        
-        const stmt = this.db.prepare(query);
-        return stmt.all(...params);
+
+        const [rows] = await this.db.query(query, params);
+        return rows;
     }
 
-    /**
-     * 根据ID查询单条记录
-     * @param {number|string} id - 记录ID
-     * @param {string} idField - ID字段名，默认为 'id'
-     * @returns {Object|null} 查询结果
-     */
-    findById(id, idField = 'id') {
-        const stmt = this.db.prepare(`SELECT * FROM ${this.tableName} WHERE ${idField} = ?`);
-        return stmt.get(id);
+    // Find by ID
+    async findById(id, idField = 'id') {
+        const [rows] = await this.db.query(`SELECT * FROM ${this.tableName} WHERE ${idField} = ?`, [id]);
+        return rows[0] || null;
     }
 
-    /**
-     * 根据条件查询单条记录
-     * @param {Object} filters - 过滤条件
-     * @returns {Object|null} 查询结果
-     */
-    findOne(filters = {}) {
-        let query = `SELECT * FROM ${this.tableName}`;
-        const params = [];
-        
-        const whereConditions = [];
-        Object.entries(filters).forEach(([key, value]) => {
-            if (value !== undefined && value !== null) {
-                whereConditions.push(`${key} = ?`);
-                params.push(value);
-            }
-        });
-        
-        if (whereConditions.length > 0) {
-            query += ` WHERE ${whereConditions.join(' AND ')}`;
-        }
-        
-        query += ' LIMIT 1';
-        
-        const stmt = this.db.prepare(query);
-        return stmt.get(...params);
+    // Find one by filters
+    async findOne(filters = {}) {
+        const results = await this.findAll({ filters, limit: 1 });
+        return results[0] || null;
     }
 
-    /**
-     * 创建新记录
-     * @param {Object} data - 要插入的数据
-     * @returns {Object} 插入结果，包含 lastInsertRowid
-     */
-    create(data) {
+    // Create record
+    async create(data) {
         const fields = Object.keys(data);
         const values = Object.values(data);
         const placeholders = fields.map(() => '?').join(', ');
-        
         const query = `INSERT INTO ${this.tableName} (${fields.join(', ')}) VALUES (${placeholders})`;
-        const stmt = this.db.prepare(query);
-        
-        return stmt.run(...values);
+        const [result] = await this.db.query(query, values);
+        return { insertId: result.insertId, affectedRows: result.affectedRows };
     }
 
-    /**
-     * 批量创建记录
-     * @param {Array} dataArray - 要插入的数据数组
-     * @returns {Array} 插入结果数组
-     */
-    createMany(dataArray) {
-        if (!Array.isArray(dataArray) || dataArray.length === 0) {
-            return [];
-        }
-        
-        const fields = Object.keys(dataArray[0]);
-        const placeholders = fields.map(() => '?').join(', ');
-        const query = `INSERT INTO ${this.tableName} (${fields.join(', ')}) VALUES (${placeholders})`;
-        
-        const stmt = this.db.prepare(query);
-        const transaction = this.db.transaction((items) => {
-            const results = [];
-            for (const item of items) {
-                const values = fields.map(field => item[field]);
-                results.push(stmt.run(...values));
-            }
-            return results;
-        });
-        
-        return transaction(dataArray);
-    }
-
-    /**
-     * 更新记录
-     * @param {number|string} id - 记录ID
-     * @param {Object} data - 要更新的数据
-     * @param {string} idField - ID字段名，默认为 'id'
-     * @returns {Object} 更新结果
-     */
-    update(id, data, idField = 'id') {
+    // Update record by ID
+    async update(id, data, idField = 'id') {
         const fields = Object.keys(data);
         const values = Object.values(data);
-        const setClause = fields.map(field => `${field} = ?`).join(', ');
-        
+        const setClause = fields.map(f => `${f} = ?`).join(', ');
         const query = `UPDATE ${this.tableName} SET ${setClause} WHERE ${idField} = ?`;
-        const stmt = this.db.prepare(query);
-        
-        return stmt.run(...values, id);
+        const [result] = await this.db.query(query, [...values, id]);
+        return { affectedRows: result.affectedRows };
     }
 
-    /**
-     * 根据条件更新记录
-     * @param {Object} filters - 过滤条件
-     * @param {Object} data - 要更新的数据
-     * @returns {Object} 更新结果
-     */
-    updateWhere(filters, data) {
-        const updateFields = Object.keys(data);
-        const updateValues = Object.values(data);
-        const setClause = updateFields.map(field => `${field} = ?`).join(', ');
-        
-        const whereConditions = [];
-        const whereValues = [];
-        Object.entries(filters).forEach(([key, value]) => {
-            if (value !== undefined && value !== null) {
-                whereConditions.push(`${key} = ?`);
-                whereValues.push(value);
-            }
-        });
-        
-        if (whereConditions.length === 0) {
-            throw new Error('Update without WHERE conditions is not allowed');
-        }
-        
-        const query = `UPDATE ${this.tableName} SET ${setClause} WHERE ${whereConditions.join(' AND ')}`;
-        const stmt = this.db.prepare(query);
-        
-        return stmt.run(...updateValues, ...whereValues);
+    // Delete record by ID
+    async delete(id, idField = 'id') {
+        const [result] = await this.db.query(`DELETE FROM ${this.tableName} WHERE ${idField} = ?`, [id]);
+        return { affectedRows: result.affectedRows };
     }
 
-    /**
-     * 删除记录
-     * @param {number|string} id - 记录ID
-     * @param {string} idField - ID字段名，默认为 'id'
-     * @returns {Object} 删除结果
-     */
-    delete(id, idField = 'id') {
-        const stmt = this.db.prepare(`DELETE FROM ${this.tableName} WHERE ${idField} = ?`);
-        return stmt.run(id);
-    }
-
-    /**
-     * 根据条件删除记录
-     * @param {Object} filters - 过滤条件
-     * @returns {Object} 删除结果
-     */
-    deleteWhere(filters) {
-        const whereConditions = [];
-        const whereValues = [];
-        Object.entries(filters).forEach(([key, value]) => {
-            if (value !== undefined && value !== null) {
-                whereConditions.push(`${key} = ?`);
-                whereValues.push(value);
-            }
-        });
-        
-        if (whereConditions.length === 0) {
-            throw new Error('Delete without WHERE conditions is not allowed');
-        }
-        
-        const query = `DELETE FROM ${this.tableName} WHERE ${whereConditions.join(' AND ')}`;
-        const stmt = this.db.prepare(query);
-        
-        return stmt.run(...whereValues);
-    }
-
-    /**
-     * 统计记录数量
-     * @param {Object} filters - 过滤条件
-     * @returns {number} 记录数量
-     */
-    count(filters = {}) {
+    // Count with filters
+    async count(filters = {}) {
         let query = `SELECT COUNT(*) as count FROM ${this.tableName}`;
         const params = [];
-        
-        const whereConditions = [];
-        Object.entries(filters).forEach(([key, value]) => {
-            if (value !== undefined && value !== null) {
-                whereConditions.push(`${key} = ?`);
-                params.push(value);
-            }
-        });
-        
+
+        const whereConditions = Object.entries(filters)
+            .filter(([_, value]) => value !== undefined && value !== null)
+            .map(([key]) => `${key} = ?`);
+
         if (whereConditions.length > 0) {
             query += ` WHERE ${whereConditions.join(' AND ')}`;
+            params.push(...Object.values(filters).filter(v => v !== undefined && v !== null));
         }
-        
-        const stmt = this.db.prepare(query);
-        const result = stmt.get(...params);
-        return result.count;
+
+        const [rows] = await this.db.query(query, params);
+        return rows[0]?.count || 0;
     }
 
-    /**
-     * 检查记录是否存在
-     * @param {Object} filters - 过滤条件
-     * @returns {boolean} 是否存在
-     */
-    exists(filters) {
-        return this.count(filters) > 0;
-    }
-
-    /**
-     * 执行事务
-     * @param {Function} callback - 事务回调函数
-     * @returns {*} 事务结果
-     */
-    transaction(callback) {
-        const transaction = this.db.transaction(callback);
-        return transaction();
+    // Check existence
+    async exists(filters = {}) {
+        return (await this.count(filters)) > 0;
     }
 }
 
